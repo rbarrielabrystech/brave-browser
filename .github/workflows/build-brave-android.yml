@@ -1,0 +1,80 @@
+name: Build Brave Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      brave_version:
+        description: 'Brave version to build (e.g., 1.50.114)'
+        required: true
+        default: '1.50.114'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # Build can take a long time
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo apt-get clean
+          df -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python-setuptools python3-distutils python-is-python3 curl unzip git lsb-release
+          sudo apt-get install -y libnss3-dev libatk1.0-dev libatk-bridge2.0-dev libcups2-dev libdrm-dev
+          sudo apt-get install -y libxkbcommon-dev libxcomposite-dev libxdamage-dev libxrandr-dev
+          sudo apt-get install -y libgbm-dev libasound2-dev libpulse-dev
+          sudo apt-get install -y nodejs npm
+          
+          # Install latest Node.js v20
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          node --version
+          npm --version
+
+      - name: Clone Brave Browser
+        run: |
+          git clone https://github.com/brave/brave-browser.git
+          cd brave-browser
+          git checkout v${{ github.event.inputs.brave_version }}
+          
+      - name: Initialize repository
+        working-directory: brave-browser
+        run: |
+          npm install
+          npm run init
+
+      - name: Install Android build dependencies
+        working-directory: brave-browser
+        run: |
+          cd src
+          ./build/install-build-deps-android.sh
+
+      - name: Configure build
+        working-directory: brave-browser
+        run: |
+          echo 'BRAVE_ANDROID_KEYSTORE_PATH=' > .env
+          echo 'BRAVE_ANDROID_KEYSTORE_NAME=' >> .env
+          echo 'BRAVE_ANDROID_KEYSTORE_PASSWORD=' >> .env
+          echo 'BRAVE_ANDROID_KEY_PASSWORD=' >> .env
+          echo 'CHANNEL=development' >> .env
+          echo 'OFFICIAL_BUILD=1' >> .env
+          echo 'SKIP_SIGNING=1' >> .env
+          
+      - name: Build Brave Android
+        working-directory: brave-browser
+        run: |
+          npm run build -- --target_os=android --target_arch=arm64
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: brave-android-apk
+          path: brave-browser/src/out/android_arm64/apks/BraveMonochrome.apk
+          retention-days: 7
