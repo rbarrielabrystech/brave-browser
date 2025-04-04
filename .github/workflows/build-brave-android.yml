@@ -3,10 +3,15 @@ name: Build Brave Android APK
 on:
   workflow_dispatch:
     inputs:
-      brave_version:
-        description: 'Brave version to build (e.g., 1.50.114)'
+      target_arch:
+        description: 'Target architecture'
         required: true
-        default: '1.50.114'
+        default: 'arm64'
+        type: choice
+        options:
+        - arm64
+        - arm
+        - x64
 
 jobs:
   build:
@@ -38,26 +43,27 @@ jobs:
           node --version
           npm --version
 
-      - name: Clone Brave Browser
-        run: |
-          git clone https://github.com/brave/brave-browser.git
-          cd brave-browser
-          git checkout v${{ github.event.inputs.brave_version }}
-          
-      - name: Initialize repository
-        working-directory: brave-browser
-        run: |
-          npm install
-          npm run init
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Android build dependencies
-        working-directory: brave-browser
         run: |
           cd src
           ./build/install-build-deps-android.sh
 
+      - name: Configure build environment
+        run: |
+          npm config set target_os android
+          npm config set target_arch ${{ github.event.inputs.target_arch || 'arm64' }}
+
+      - name: Initialize repository
+        run: |
+          npm install
+          npm run init -- --target_os=android --target_arch=${{ github.event.inputs.target_arch || 'arm64' }}
+
       - name: Configure build
-        working-directory: brave-browser
         run: |
           echo 'BRAVE_ANDROID_KEYSTORE_PATH=' > .env
           echo 'BRAVE_ANDROID_KEYSTORE_NAME=' >> .env
@@ -68,13 +74,12 @@ jobs:
           echo 'SKIP_SIGNING=1' >> .env
           
       - name: Build Brave Android
-        working-directory: brave-browser
         run: |
-          npm run build -- --target_os=android --target_arch=arm64
+          npm run build -- --target_os=android --target_arch=${{ github.event.inputs.target_arch || 'arm64' }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: brave-android-apk
-          path: brave-browser/src/out/android_arm64/apks/BraveMonochrome.apk
+          path: src/out/android_${{ github.event.inputs.target_arch || 'arm64' }}/apks/BraveMonochrome.apk
           retention-days: 7
